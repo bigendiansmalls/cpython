@@ -103,6 +103,8 @@ class FTP:
     file = None
     welcome = None
     passiveserver = True
+    # Allows the client to force EPSV mode, useful for NAT-type connections.
+    ext_passiveserver = False
     # Disables https://bugs.python.org/issue43285 security if set to True.
     trust_server_pasv_ipv4_address = False
 
@@ -183,6 +185,23 @@ class FTP:
         With a false argument, use the normal PORT mode,
         With a true argument, use the PASV command.'''
         self.passiveserver = val
+
+    # Internal: choose extended passive mode on or off e.g. for NAT
+    # if we turn it on, also turn on passive mode. if we turn it off,
+    # leave passive mode alone.
+    def set_epsv(self, val):
+        '''Force the client to use the Extended Passive
+        mode as documented in RFC2 428. This functions similarly
+        to passive mode, except only the port value is used to initiate
+        the data connection. The default is false. With a false argument,
+        let the module decide on PASV or EPSV. With a true argument,
+        force the use of EPSV mode.'''
+        # if true, set both PASV & EPSV
+        if val:
+            self.ext_passiveserver = val
+            self.passiveserver = val
+        else:
+            self.ext_passiveserver = val
 
     # Internal: "sanitize" a string for printing
     def sanitize(self, s):
@@ -322,13 +341,16 @@ class FTP:
         return sock
 
     def makepasv(self):
-        """Internal: Does the PASV or EPSV handshake -> (address, port)"""
-        if self.af == socket.AF_INET:
+        """Internal: Does the PASV handshake -> (address, port) or
+            EPSV handshake -> (|||port|)."""
+        if (self.af == socket.AF_INET and self.ext_passiveserver == False):
             untrusted_host, port = parse227(self.sendcmd('PASV'))
             if self.trust_server_pasv_ipv4_address:
                 host = untrusted_host
             else:
                 host = self.sock.getpeername()[0]
+        # Internal: either EPSV is set via set_epsv or the connection is
+        # not of type AF_INET - e.g. AF_UNIX, AF_INET6, etc.
         else:
             host, port = parse229(self.sendcmd('EPSV'), self.sock.getpeername())
         return host, port
